@@ -11,9 +11,18 @@ PROXY_SOURCES = [
     "https://www.socks-proxy.net/"
 ]
 
+def get_country_by_ip(ip):
+    """Use ip-api.com to get the country of an IP"""
+    try:
+        res = requests.get(f"http://ip-api.com/json/{ip}?fields=country", timeout=5)
+        data = res.json()
+        return data.get("country", "Unknown")
+    except:
+        return "Unknown"
+
 def scrape_proxies_from_url(url, proxy_types):
-    """ گرفتن پراکسی‌ها از یک URL"""
-    print(f"[*] دریافت پراکسی از: {url}")
+    """Fetch proxies from a given URL"""
+    print(f"[*] Fetching proxies from: {url}")
     proxies = []
     try:
         response = requests.get(url, timeout=10)
@@ -24,7 +33,7 @@ def scrape_proxies_from_url(url, proxy_types):
             ip = cols[0].text
             port = cols[1].text
             country = cols[3].text or "Unknown"
-            proxy_type = "SOCKS5" if cols[4].text.lower() == "yes" else "HTTP"  # Check SOCKS
+            proxy_type = "SOCKS5" if cols[4].text.lower() == "yes" else "HTTP"
             if proxy_type in proxy_types:
                 proxies.append({
                     "ip": ip,
@@ -34,20 +43,57 @@ def scrape_proxies_from_url(url, proxy_types):
                     "type": proxy_type
                 })
     except Exception as e:
-        print(f"[!] خطا هنگام دریافت از {url}: {e}")
+        print(f"[!] Error while fetching from {url}: {e}")
+    return proxies
+
+def get_proxyscrape_proxies(proxy_types):
+    """Fetch proxies from ProxyScrape API and resolve their countries"""
+    proxies = []
+    print("[*] Fetching proxies from ProxyScrape API...")
+
+    type_map = {
+        "HTTP": "http",
+        "SOCKS4": "socks4",
+        "SOCKS5": "socks5"
+    }
+
+    for p_type in proxy_types:
+        if p_type not in type_map:
+            continue
+        url = f"https://proxy.scrape.do/api/proxy-list?type={type_map[p_type].lower()}&timeout=5000&limit=50&anonymity=all"
+        try:
+            response = requests.get(url, timeout=10)
+            lines = response.text.strip().splitlines()
+            for line in lines:
+                ip_port = line.strip()
+                ip, port = ip_port.split(":")
+                country = get_country_by_ip(ip)
+                proxies.append({
+                    "ip": ip,
+                    "port": port,
+                    "country": country,
+                    "proxy": f"{p_type.lower()}://{ip_port}",
+                    "type": p_type
+                })
+        except Exception as e:
+            print(f"[!] Error fetching from ProxyScrape ({p_type}): {e}")
     return proxies
 
 def get_all_proxies(proxy_types):
-    """ دریافت تمام پراکسی‌ها از منابع مختلف """
+    """Retrieve all proxies from multiple sources"""
     all_proxies = []
+
     for source in PROXY_SOURCES:
         all_proxies.extend(scrape_proxies_from_url(source, proxy_types))
         time.sleep(1)
-    print(f"[+] تعداد کل پراکسی‌های پیدا شده: {len(all_proxies)}")
+
+    all_proxies.extend(get_proxyscrape_proxies(proxy_types))
+
+    print(f"[+] Total proxies found: {len(all_proxies)}")
     return all_proxies
 
 def is_proxy_working(proxy):
-    """ بررسی سالم بودن یک پراکسی """
+    """Check if a proxy is working"""
     proxy_url = proxy["proxy"]
     try:
         response = requests.get("http://httpbin.org/ip", proxies={"http": proxy_url, "https": proxy_url}, timeout=6)
@@ -56,8 +102,8 @@ def is_proxy_working(proxy):
         return None
 
 def collect_valid_proxies_multithread(proxies, min_proxies_per_country):
-    """ بررسی سالم بودن پراکسی‌ها و فیلتر کردن بر اساس کشور """
-    print("[*] تست پراکسی‌ها به صورت چند نخی...")
+    """Test proxies using multithreading and filter based on country"""
+    print("[*] Testing proxies with multithreading...")
     working = defaultdict(list)
     results = []
 
@@ -76,7 +122,7 @@ def collect_valid_proxies_multithread(proxies, min_proxies_per_country):
                             "proxy": result["proxy"],
                             "type": result["type"]
                         })
-                        print(f"[✓] پراکسی سالم از {country} ({len(working[country])})")
+                        print(f"[✓] Working proxy from {country} ({len(working[country])})")
             except:
                 pass
 
